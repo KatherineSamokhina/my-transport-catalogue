@@ -1,95 +1,129 @@
+#include <algorithm>
+#include <numeric>
+#include <optional>
+
 #include "transport_catalogue.h"
 
-#include <execution>
-#include <iomanip>
-#include <numeric>
-
 namespace catalog {
+	using namespace detail;
 
-std::ostream& operator<<(std::ostream& os, const BusStatistics& bus_info) {
-    os << "Bus " << bus_info.number << ": " << bus_info.stops_count << " stops on route, " << bus_info.unique_stops_count << " unique stops, ";
-    os << bus_info.rout_length << " route length, ";
-    os << std::setprecision(6) << bus_info.curvature << " curvature";
-    return os;
-}
+	void TransportCatalogue::AddStop(const Stop& stop) {
+		const auto& iter_stop = stops_.emplace(stops_.end(), stop);
+		const auto ptr_stop = std::make_shared<Stop>(*iter_stop);
+		ptr_stops_.emplace(ptr_stop);
+		buses_for_stops_[ptr_stop];
+		index_stops_[ptr_stop->name] = ptr_stop;
+	}
 
-size_t Bus::GetStopsCount() const {
-    return (type == RouteType::CIRCLE) ? stop_names.size() : 2 * stop_names.size() - 1;
-}
+	void TransportCatalogue::AddBus(const Bus& bus) {
+		const auto& iter_bus = buses_.emplace(buses_.end(), bus);
+		const auto ptr_bus = std::make_shared<Bus>(*iter_bus);
+		ptr_buses_.emplace(ptr_bus);
+		for (auto& stop : ptr_bus->stops) {
+			stop->free = false;
+			buses_for_stops_[stop].emplace(ptr_bus);
+		}
+		SetBusStat(ptr_bus);
+		index_buses_[ptr_bus->number] = ptr_bus;
 
-void TransportCatalogue::AddStop(Stop stop) {
-    const auto position = stops_storage_.insert(stops_storage_.begin(), std::move(stop));
-    stops_.insert({position->name, &(*position)});
-    buses_through_stop_.insert({position->name, {}});
-}
+	}
 
-void TransportCatalogue::AddDistance(std::string_view stop_from, std::string_view stop_to, int distance) {
-    distances_between_stops_.insert({{stops_.at(stop_from), stops_.at(stop_to)}, distance});
-}
+	[[nodiscard]] std::shared_ptr<Bus> TransportCatalogue::FindBus(const std::string_view bus) const {
+		if (index_buses_.count(bus) != 0) {
+			return index_buses_.at(bus);
+		}
+		return nullptr;
+	}
 
-void TransportCatalogue::AddBus(Bus bus) {
-    for (auto& stop : bus.stop_names)
-        stop = stops_.find(stop)->first;
-    bus.unique_stops = {bus.stop_names.begin(), bus.stop_names.end()};
+	[[nodiscard]] std::shared_ptr<Stop> TransportCatalogue::FindStop(const std::string_view stop) const {
+		if (index_stops_.count(stop) != 0) {
+			return index_stops_.at(stop);
+		}
+		return nullptr;
+	}
 
-    const auto position = buses_storage_.insert(buses_storage_.begin(), std::move(bus));
-    buses_.insert({position->number, &(*position)});
+	std::optional<BusInfo> TransportCatalogue::GetBusInfo(const std::string_view bus_number)const {
+		const std::shared_ptr<Bus>& bus = FindBus(bus_number);
+		if (!bus) {
+			return std::nullopt;
+		}
+		return buses_info_.at(bus);
+	}
 
-    for (std::string_view stop : position->stop_names)
-        buses_through_stop_[stop].insert(position->number);
-}
+	std::shared_ptr<Buses> TransportCatalogue::GetBusesByStop(const std::string_view stop_name) const {
+		std::shared_ptr<Stop> stop = FindStop(stop_name);
+		if (!stop) {
+			return nullptr;
+		}
+		auto test = buses_for_stops_.at(stop);
+		return std::make_shared<Buses>(buses_for_stops_.at(stop));
+	}
 
-std::optional<BusStatistics> TransportCatalogue::GetBusStatistics(std::string_view bus_number) const {
-    if (buses_.count(bus_number) == 0)
-        return std::nullopt;
+	void TransportCatalogue::AddDistanceBetweenStops(std::shared_ptr<Stop> from, std::shared_ptr<Stop> to, float distance) {
+		distance_between_stops_[std::make_pair(from, to)] = distance;
+	}
 
-    const Bus* bus_info = buses_.at(bus_number);
+	float TransportCatalogue::GetDistanceBetweenStops(std::shared_ptr<Stop> stop1, std::shared_ptr<Stop> stop2) const {
 
-    BusStatistics result;
-    result.number = bus_info->number;
-    result.stops_count = bus_info->GetStopsCount();
-    result.unique_stops_count = bus_info->unique_stops.size();
-    result.rout_length = CalculateRouteLength(bus_info);
-    result.curvature = static_cast<double>(result.rout_length) / CalculateGeographicLength(bus_info);
+		auto pair = std::make_pair(stop1, stop2);
+		if (distance_between_stops_.count(pair) != 0) {
+			return distance_between_stops_.at(pair);
+		}
+		pair = std::make_pair(stop1, stop2);
+		if (distance_between_stops_.count(pair) != 0) {
+			return distance_between_stops_.at(pair);
+		}
+		return 0.0;
+	}
 
-    return result;
-}
+	void TransportCatalogue::SetBusStat(std::shared_ptr<Bus> bus) {
 
-int TransportCatalogue::CalculateRouteLength(const Bus* bus_info) const {
-    auto get_route_length = [this](std::string_view from, std::string_view to) {
-        auto key = std::make_pair(stops_.at(from), stops_.at(to));
-        return (distances_between_stops_.count(key) > 0)
-                   ? distances_between_stops_.at(key)
-                   : distances_between_stops_.at({stops_.at(to), stops_.at(from)});
-    };
+		std::unordered_set<std::string> unique_stops;
+		BusInfo info;
+		const std::vector<std::shared_ptr<Stop>>& v_stops = bus->stops;
 
-    int forward_route =
-        std::transform_reduce(bus_info->stop_names.begin(), std::prev(bus_info->stop_names.end()),
-                              std::next(bus_info->stop_names.begin()), 0, std::plus<>(), get_route_length);
-    if (bus_info->type == RouteType::CIRCLE)
-        return forward_route;
+		std::for_each(v_stops.begin(), v_stops.end(), [&unique_stops](auto stop) {
+			unique_stops.insert(stop->name);
+			});
 
-    int backward_route =
-        std::transform_reduce(bus_info->stop_names.rbegin(), std::prev(bus_info->stop_names.rend()),
-                              std::next(bus_info->stop_names.rbegin()), 0, std::plus<>(), get_route_length);
+		double geographical_length = std::transform_reduce(bus->stops.begin() + 1, bus->stops.end(),
+			bus->stops.begin(), 0.0, std::plus<>{}, [](const auto s2, const auto s1) {
+				return ComputeDistance(s1->coord, s2->coord);
+			}
+		);
 
-    return forward_route + backward_route;
-}
+		info.stops = bus->stops.size();
+		info.unique_stops = unique_stops.size();
 
-double TransportCatalogue::CalculateGeographicLength(const Bus* bus_info) const {
-    double geographic_length = std::transform_reduce(
-        std::next(bus_info->stop_names.begin()), bus_info->stop_names.end(), bus_info->stop_names.begin(), 0.,
-        std::plus<>(), [this](std::string_view from, std::string_view to) {
-            return ComputeDistance(stops_.at(from)->point, stops_.at(to)->point);
-        });
+		info.route_length = std::transform_reduce(bus->stops.begin() + 1, bus->stops.end(),
+			bus->stops.begin(), 0, std::plus<>{}, [this](const auto s2, const auto s1) {
+				return GetDistanceBetweenStops(s1, s2);
+			}
+		);
 
-    return (bus_info->type == RouteType::CIRCLE) ? geographic_length : geographic_length * 2.;
-}
+		if (!bus->is_ring) {
+			geographical_length *= 2;
 
-const std::set<std::string_view>* TransportCatalogue::GetBusesPassingThroughTheStop(std::string_view stop_name) const {
-    if (const auto position = buses_through_stop_.find(stop_name); position != buses_through_stop_.cend())
-        return &position->second;
-    return nullptr;
-}
+			info.stops = info.stops * 2 - 1;
 
-}  // namespace catalog
+			info.route_length += std::transform_reduce(bus->stops.rbegin() + 1, bus->stops.rend(),
+				bus->stops.rbegin(), 0, std::plus<>{}, [this](const auto s2, const auto s1) {
+					return GetDistanceBetweenStops(s1, s2);
+				}
+			);
+		}
+
+		info.curvature = info.route_length / geographical_length;
+
+		buses_info_[bus] = std::move(info);
+	}
+
+	const Buses& TransportCatalogue::GetBuses() const {
+		return ptr_buses_;
+	}
+
+	const Stops& TransportCatalogue::GetStops() const {
+		return ptr_stops_;
+	}
+
+} //namespace catalog
