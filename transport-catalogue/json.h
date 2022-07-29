@@ -5,114 +5,73 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <stack>
+#include <memory>
 
 namespace json {
-	using namespace std::literals;
 
-	class Node;
+    class Node;
 
-	using Dict = std::map<std::string, Node>;
-	using Array = std::vector<Node>;
+    using Dict = std::map<std::string, Node>;
+    using Array = std::vector<Node>;
 
-	class ParsingError : public std::runtime_error {
-	public:
-		using runtime_error::runtime_error;
-	};
+    class ParsingError : public std::runtime_error {
+    public:
+        using runtime_error::runtime_error;
+    };
 
-	class Node {
-	public:
-		using Value = std::variant<std::nullptr_t, int, bool, double, std::string, Array, Dict>;
+    using Value = std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string>;
 
-		Node() = default;
-		Node(std::nullptr_t value);
-		Node(int value);
-		Node(bool value);
-		Node(double value);
-		Node(std::string value);
-		Node(Array array);
-		Node(Dict map);
+    class Node final : private std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string> {
+    public:
+        using variant::variant;
+        using Value = variant;
 
-		bool IsInt() const;
-		bool IsDouble() const;
-		bool IsPureDouble() const;
-		bool IsBool() const;
-		bool IsString() const;
-		bool IsNull() const;
-		bool IsArray() const;
-		bool IsMap() const;
+        bool IsInt() const;
+        int AsInt() const;
 
-		int AsInt() const;
-		bool AsBool() const;
-		double AsDouble() const;
-		const std::string& AsString() const;
-		const Array& AsArray() const;
-		const Dict& AsMap() const;
+        bool IsPureDouble() const;
+        bool IsDouble() const;
+        double AsDouble() const;
 
-		const Value& GetValue() const {
-			return value_;
-		}
+        bool IsBool() const;
+        bool AsBool() const;
 
-	private:
-		Value value_;
-	};
+        bool IsString() const;
+        const std::string& AsString() const;
 
-	inline bool operator ==(Node left, Node right) {
-		return left.GetValue() == right.GetValue();
-	}
+        bool IsDict() const;
 
-	inline bool operator !=(Node left, Node right) {
-		return !(left == right);
-	}
+        const Dict& AsDict() const;
+        Dict& AsDict();
 
-	class Document {
-	public:
-		explicit Document(Node root);
+        bool IsNull() const;
 
-		const Node& GetRoot() const;
+        bool IsArray() const;
 
-	private:
-		Node root_;
-	};
+        const Array& AsArray() const;
+        Array& AsArray();
 
-	inline bool operator ==(Document left, Document right) {
-		return left.GetRoot() == right.GetRoot();
-	}
+        const Value& GetValue() const;
 
-	inline bool operator !=(Document left, Document right) {
-		return !(left == right);
-	}
+        bool operator==(const Node&) const;
+        bool operator!=(const Node&) const;
+    };
 
-	Document Load(std::istream& input);
+    class Document {
+    public:
+        explicit Document(Node root);
+        const Node& GetRoot() const;
 
-	struct PrintContext {
-		std::ostream& out;
-		int indent_step = 4;
-		int indent = 0;
+        bool operator==(const Document&) const;
+        bool operator!=(const Document&) const;
 
-		void PrintIndent() const {
-			for (int i = 0; i < indent; ++i) {
-				out.put(' ');
-			}
-		}
+    private:
+        Node root_;
+    };
 
-		PrintContext Indented() const {
-			return { out, indent_step, indent_step + indent };
-		}
-	};
+    Document Load(std::istream& input);
 
-	template <typename Value>
-	inline void PrintValue(const Value& value, const PrintContext& ctx) {
-		ctx.out << value;
-	}
-
-	void PrintValue(std::nullptr_t, const PrintContext& ctx);
-	void PrintValue(const bool& value, const PrintContext& ctx);
-	void PrintValue(const std::string& value, const PrintContext& ctx);
-	void PrintValue(const Array& array, const PrintContext& ctx);
-	void PrintValue(const Dict& dict, const PrintContext& ctx);
-
-	void PrintNode(const Node& node, const PrintContext& ctx);
-
-	void Print(const Document& doc, std::ostream& output);
+    void Print(const Document& doc, std::ostream& output);
 
 }  // namespace json

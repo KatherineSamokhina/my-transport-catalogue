@@ -9,8 +9,6 @@
 #include "geo.h"
 #include "svg.h"
 
-inline const double EPSILON = 1e-6;
-
 struct Settings {
     double width = 0;
     double height = 0;
@@ -26,6 +24,7 @@ struct Settings {
     std::vector<svg::Color> color_palette;
 };
 
+inline const double EPSILON = 1e-6;
 bool IsZero(double value);
 svg::Point MakePoint(double x, double y);
 svg::Color MakeColor(const std::string& color);
@@ -41,10 +40,7 @@ class SphereProjector final {
 public:
     SphereProjector() = default;
 
-    SphereProjector(const geo::Coordinates& left_top,
-        const geo::Coordinates& right_bottom,
-        double width, double height, double padding);
-
+    SphereProjector(const geo::Coordinates& left_top, const geo::Coordinates& right_bottom, double width, double height, double padding);
     svg::Point operator()(const geo::Coordinates& coords) const;
 };
 
@@ -56,12 +52,9 @@ class MapRenderer final {
 
 public:
     MapRenderer() = default;
-
     svg::Document GetDocument() const;
-
     void SetSettings(const Settings& settings);
     Settings GetSettings() const;
-
     void SetBorder(const Stops& stops);
     void SetTrail(const Buses& buses);
     void SetStation(const Stops& stops);
@@ -71,7 +64,6 @@ private:
     void RenderTrailName(const Bus& bus);
     void RenderStation(const Stop& stop);
     void RenderStationName(const Stop& stop);
-
     svg::Polyline CreateTrail(const Bus& bus) const;
     svg::Color GetColor();
     svg::Point GetPoint(const geo::Coordinates& coords) const;

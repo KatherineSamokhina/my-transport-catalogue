@@ -1,30 +1,31 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <string_view>
 
 #include "json.h"
 #include "json_reader.h"
 #include "map_renderer.h"
 
+using namespace std::literals;
+
 int main() {
-	catalog::TransportCatalogue catalogue;
+	catalog::TransportCatalogue base;
 	MapRenderer renderer;
-	RequestHandler request(catalogue, renderer);
-	JSONreader reader(catalogue, renderer, request);
+	RequestHandler request(base, renderer);
+	JSONreader reader(base, renderer, request);
 
 	const json::Document doc = json::Load(std::cin);
-	const auto& mode = doc.GetRoot().AsMap();
+	const auto& mode = doc.GetRoot().AsDict();
 
 	if (mode.count("base_requests") || mode.count("render_settings")) {
 		reader.ReadRequest(doc);
 	}
 	if (mode.count("stat_requests")) {
 		reader.ReadRequests(doc);
-		reader.ReadTransportCatalogue();
-
-		std::ofstream out("out.svg");
-		request.RenderMap(out);
 	}
+
+	reader.ReadTransportCatalogue();
 
 	return 0;
 }

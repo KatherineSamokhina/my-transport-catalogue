@@ -247,12 +247,12 @@ namespace svg {
     enum class TypeChar { QUOT, APOS, LT, GT, AMP, OTHER };
 
     class Text final : public Object, public PathProps<Text> {
-        Point pos_;
-        Point offset_;
-        uint32_t font_size_ = 1;
-        std::optional<std::string> font_family_;
-        std::optional<std::string> font_weight_;
-        std::string data_;
+        Point                                    pos_;
+        Point                                    offset_;
+        uint32_t                                 font_size_ = 1;
+        std::optional<std::string>               font_family_;
+        std::optional<std::string>               font_weight_;
+        std::string                              data_;
 
     public:
         Text& SetPosition(Point pos);
