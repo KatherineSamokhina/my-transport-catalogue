@@ -1,31 +1,20 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <string_view>
-
-#include "json.h"
+#include "transport_catalogue.h"
 #include "json_reader.h"
 #include "map_renderer.h"
-
-using namespace std::literals;
+#include "transport_router.h"
 
 int main() {
-	catalog::TransportCatalogue base;
-	MapRenderer renderer;
-	RequestHandler request(base, renderer);
-	JSONreader reader(base, renderer, request);
 
-	const json::Document doc = json::Load(std::cin);
-	const auto& mode = doc.GetRoot().AsDict();
+    catalog::TransportCatalogue catalog;
+    json::Document doc(json::Load(std::cin));
+    json_reader::JSONReader json(doc);
+    map_render::MapRender map_render(json.GetRenderSettings());
+    json.LoadDataToTC(catalog);
 
-	if (mode.count("base_requests") || mode.count("render_settings")) {
-		reader.ReadRequest(doc);
-	}
-	if (mode.count("stat_requests")) {
-		reader.ReadRequests(doc);
-	}
+    transport_router::TransportRouter router(catalog, json.GetRouteSettings());
+    handler::RequestHandler handler(catalog, map_render, router);
 
-	reader.ReadTransportCatalogue();
+    json.PrintStats(std::cout, handler.GetStats(json.GetStatCommands()));
 
-	return 0;
+    return 0;
 }

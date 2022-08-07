@@ -3,75 +3,76 @@
 #include <iostream>
 #include <map>
 #include <string>
-#include <vector>
 #include <variant>
-#include <stack>
-#include <memory>
+#include <vector>
 
 namespace json {
 
-    class Node;
+class Node;
+using Dict = std::map<std::string, Node>;
+using Array = std::vector<Node>;
 
-    using Dict = std::map<std::string, Node>;
-    using Array = std::vector<Node>;
+class ParsingError : public std::runtime_error {
+public:
+    using runtime_error::runtime_error;
+};
 
-    class ParsingError : public std::runtime_error {
-    public:
-        using runtime_error::runtime_error;
-    };
+//----------------- Node -----------------------
 
-    using Value = std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string>;
+class Node final
+    : private std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string> {
+public:
+    using variant::variant;
+    using Value = variant;
 
-    class Node final : private std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string> {
-    public:
-        using variant::variant;
-        using Value = variant;
+public:
+    bool IsInt() const;
+    int AsInt() const;
 
-        bool IsInt() const;
-        int AsInt() const;
+    bool IsPureDouble() const;
+    bool IsDouble() const;
+    double AsDouble() const;
 
-        bool IsPureDouble() const;
-        bool IsDouble() const;
-        double AsDouble() const;
+    bool IsBool() const;
+    bool AsBool() const;
 
-        bool IsBool() const;
-        bool AsBool() const;
+    bool IsNull() const;
 
-        bool IsString() const;
-        const std::string& AsString() const;
+    bool IsArray() const;
+    const Array& AsArray() const;
 
-        bool IsDict() const;
+    bool IsString() const;
+    const std::string& AsString() const;
 
-        const Dict& AsDict() const;
-        Dict& AsDict();
+    bool IsDict() const;
+    const Dict& AsDict() const;
 
-        bool IsNull() const;
+    bool operator==(const Node& rhs) const;
 
-        bool IsArray() const;
+    const Value& GetValue() const;
+};
 
-        const Array& AsArray() const;
-        Array& AsArray();
+inline bool operator!=(const Node& lhs, const Node& rhs);
 
-        const Value& GetValue() const;
+//----------------- Document -----------------------
 
-        bool operator==(const Node&) const;
-        bool operator!=(const Node&) const;
-    };
+class Document {
+public:
+    explicit Document(Node root);
 
-    class Document {
-    public:
-        explicit Document(Node root);
-        const Node& GetRoot() const;
+public:
+    const Node& GetRoot() const;
 
-        bool operator==(const Document&) const;
-        bool operator!=(const Document&) const;
+private:
+    Node root_;
+};
 
-    private:
-        Node root_;
-    };
+inline bool operator==(const Document& lhs, const Document& rhs);
 
-    Document Load(std::istream& input);
+inline bool operator!=(const Document& lhs, const Document& rhs);
 
-    void Print(const Document& doc, std::ostream& output);
+Document Load(std::istream& input);
+
+void Print(const Document& doc, std::ostream& output);
 
 }  // namespace json

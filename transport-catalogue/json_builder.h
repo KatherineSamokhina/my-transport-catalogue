@@ -1,97 +1,109 @@
 #pragma once
 
-#include <memory>
-#include <vector>
 #include <string>
+#include <vector>
+#include <memory>
+#include <optional>
 
 #include "json.h"
 
 namespace json {
 
-    class BuildConstructor;
-    class BuildContextFirst;
-    class BuildContextSecond;
-    class KeyContext;
-    class ValueKeyContext;
-    class ValueArrayContext;
-    class DictContext;
-    class ArrayContext;
-    class Builder;
+class BaseContext;
+class DictItemContext;
+class DictValueContext;
+class ArrayItemContext;
 
-    class BuildConstructor {
-    public:
-        explicit BuildConstructor(Builder& builder);
-    protected:
-        Builder& builder_;
-    };
+class Builder {
+public:
+    Builder() = default;
 
-    class BuildContextFirst : public BuildConstructor {
-    public:
-        explicit BuildContextFirst(Builder& builder);
-        DictContext& StartDict();
-        ArrayContext& StartArray();
-    };
+public:
+    DictItemContext StartDict();
+    BaseContext EndDict();
+    ArrayItemContext StartArray();
+    BaseContext EndArray();
+    DictValueContext Key(const std::string& key);
+    BaseContext Value(const Node::Value& val);
+    Node Build();
 
-    class BuildContextSecond : public BuildConstructor {
-    public:
-        explicit BuildContextSecond(Builder& builder);
-        KeyContext& Key(std::string key);
-        Builder& EndDict();
-    };
+private:
+    bool IsAdd() const;
+    bool IsNullNode() const;
+    bool IsKey() const;
+    bool IsValue() const;
+    bool IsStartDict() const;
+    bool IsEndDict() const;
+    bool IsStartArray() const;
+    bool IsEndArray() const;
+    bool IsBuild() const;
+    void AddNode(Node node);
 
-    class KeyContext : public BuildContextFirst {
-    public:
-        explicit KeyContext(Builder& builder);
-        ValueKeyContext& Value(Node::Value value);
-    };
+private:
+    std::optional<Node> root_;
+    std::vector<std::unique_ptr<Node>> nodes_stack_;
+};
 
-    class ValueKeyContext : public BuildContextSecond {
-    public:
-        explicit ValueKeyContext(Builder& builder);
-    };
+class BaseContext {
+public:
+    BaseContext(Builder& builder);
+    DictItemContext StartDict();
+    BaseContext EndDict();
+    ArrayItemContext StartArray();
+    BaseContext EndArray();
+    DictValueContext Key(const std::string& key);
+    BaseContext Value(const Node::Value& val);
+    Node Build();
 
-    class ValueArrayContext : public BuildContextFirst {
-    public:
-        explicit ValueArrayContext(Builder& builder);
-        ValueArrayContext& Value(Node::Value value);
-        Builder& EndArray();
-    };
+private:
+    Builder& builder_;
+};
 
-    class DictContext : public BuildContextSecond {
-    public:
-        explicit DictContext(Builder& builder);
-    };
+class DictItemContext : public BaseContext {
+public:
+    DictItemContext(Builder& builder);
+    DictItemContext(BaseContext context);
 
-    class ArrayContext : public ValueArrayContext {
-    public:
-        explicit ArrayContext(Builder& builder);
-    };
+public:
+    DictValueContext Key(const std::string& key);
+    BaseContext EndDict();
 
-    class Builder final : virtual public KeyContext, virtual public ValueKeyContext, virtual public DictContext, virtual public ArrayContext {
-        Node node_ = nullptr;
-        std::vector<std::unique_ptr<Node>> nodes_stack_;
+    DictItemContext StartDict() = delete;
+    ArrayItemContext StartArray() = delete;
+    BaseContext EndArray() = delete;
+    BaseContext Value(const Node::Value& val) = delete;
+    Node Build() = delete;
+};
 
-    public:
-        Builder();
-        KeyContext& Key(std::string key);
-        Builder& Value(Node::Value value);
-        DictContext& StartDict();
-        Builder& EndDict();
-        ArrayContext& StartArray();
-        Builder& EndArray();
-        Node Build() const;
+class DictValueContext : public BaseContext {
+public:
+    DictValueContext(Builder& builder);
 
-    private:
-        bool UnableAdd() const;
-        bool IsMakeObj() const;
-        bool UnableUseKey() const;
-        bool UnableUseValue() const;
-        bool UnableUseStartDict() const;
-        bool UnableUseEndDict() const;
-        bool UnableUseStartArray() const;
-        bool UnableUseEndArray() const;
-        bool UnableUseBuild() const;
-        Builder& AddNode(const Node& node);
-        void PushNode(Node::Value value);
-    };
-}
+public:
+    DictItemContext Value(const Node::Value& val);
+    DictItemContext StartDict();
+    ArrayItemContext StartArray();
+
+    BaseContext EndDict() = delete;
+    BaseContext EndArray() = delete;
+    DictValueContext Key(const std::string& key) = delete;
+    Node Build() = delete;
+};
+
+class ArrayItemContext : public BaseContext {
+public:
+    ArrayItemContext(Builder& builder);
+    ArrayItemContext(BaseContext context);
+
+public:
+    ArrayItemContext Value(const Node::Value& val);
+    DictItemContext StartDict();
+    ArrayItemContext StartArray();
+    BaseContext EndArray();
+
+    BaseContext EndDict() = delete;
+    DictValueContext Key(const std::string& key) = delete;
+    Node Build() = delete;
+};
+
+} // namespace json

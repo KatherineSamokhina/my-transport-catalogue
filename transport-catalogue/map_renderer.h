@@ -1,71 +1,55 @@
 #pragma once
 
-#include <cstdint>
-#include <optional>
-#include <vector>
-#include <set>
-
-#include "domain.h"
-#include "geo.h"
+#include <algorithm>
 #include "svg.h"
+#include "domain.h"
 
-struct Settings {
-    double width = 0;
-    double height = 0;
-    double padding = 0;
-    double line_width = 0;
-    double stop_radius = 0;
-    uint64_t bus_label_font_size = 0;
-    svg::Point bus_label_offset;
-    uint64_t stop_label_font_size = 0;
-    svg::Point stop_label_offset;
-    svg::Color underlayer_color;
-    double underlayer_width = 0;
-    std::vector<svg::Color> color_palette;
-};
+namespace map_render {
+    inline const double EPSILON = 1e-6;
+    inline bool IsZero(double value);
 
-inline const double EPSILON = 1e-6;
-bool IsZero(double value);
-svg::Point MakePoint(double x, double y);
-svg::Color MakeColor(const std::string& color);
-svg::Color MakeColor(int r, int g, int b);
-svg::Color MakeColor(int r, int g, int b, double a);
+    struct RenderSettings {
+        double width = 0.0;
+        double height = 0.0;
+        double padding = 0.0;
+        double line_width = 0.0;
+        double stop_radius = 0.0;
+        int bus_label_font_size = 0;
+        std::pair<double, double> bus_label_offset;
+        int stop_label_font_size = 0;
+        std::pair<double, double> stop_label_offset;
+        svg::Color underlayer_color;
+        double underlayer_width = 0.0;
+        std::vector<svg::Color> color_palette;
+    };
 
-class SphereProjector final {
-    double padding_;
-    double min_lon_;
-    double max_lat_;
-    double zoom_coef_ = 0;
+    class SphereProjector;
 
-public:
-    SphereProjector() = default;
+    class MapRender {
+    public:
+        MapRender(RenderSettings settings);
+        svg::Document GetMapForTC(std::vector<StopPtr> stops, std::vector<BusPtr> buses) const;
 
-    SphereProjector(const geo::Coordinates& left_top, const geo::Coordinates& right_bottom, double width, double height, double padding);
-    svg::Point operator()(const geo::Coordinates& coords) const;
-};
+    private:
+        template <typename Obj>
+        void AddToDocument(svg::Document& doc, std::vector<Obj>&& objects) const {
+            for (auto&& obj : objects) {
+                doc.Add(std::move(obj));
+            }
+        }
 
-class MapRenderer final {
-    SphereProjector sphere_projector_;
-    Settings settings_;
-    size_t index_color_ = 0;
-    svg::Document document_;
+        void AddBusNameToContainer(
+            std::vector<svg::Text>& bus_names, BusPtr bus_ptr, size_t color_num, SphereProjector& projector) const;
 
-public:
-    MapRenderer() = default;
-    svg::Document GetDocument() const;
-    void SetSettings(const Settings& settings);
-    Settings GetSettings() const;
-    void SetBorder(const Stops& stops);
-    void SetTrail(const Buses& buses);
-    void SetStation(const Stops& stops);
+        void AddStopNameToContainer(
+            std::vector<svg::Text>& stop_names, StopPtr stop_ptr, SphereProjector& projector) const;
 
-private:
-    void RenderTrail(const Bus& bus);
-    void RenderTrailName(const Bus& bus);
-    void RenderStation(const Stop& stop);
-    void RenderStationName(const Stop& stop);
-    svg::Polyline CreateTrail(const Bus& bus) const;
-    svg::Color GetColor();
-    svg::Point GetPoint(const geo::Coordinates& coords) const;
-    size_t GetIndexColor();
-};
+        void AddCircleToContainer(
+            std::vector<svg::Circle>& circles, StopPtr stop_ptr, SphereProjector& projector) const;
+
+    private:
+        RenderSettings settings_;
+
+    };
+
+} //namespace map_render

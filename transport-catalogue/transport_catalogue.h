@@ -6,54 +6,47 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <map>
-#include <memory>
-#include <set>
-#include <optional>
 
-#include "geo.h"
 #include "domain.h"
 
 namespace catalog {
+    
+    using namespace detail;
 
-	using namespace detail;
+    class TransportCatalogue {
 
-	class TransportCatalogue {
+    public:
+        BusPtr AddBus(Bus bus);
+        StopPtr AddStop(Stop stop);
 
-	public:
-		void AddBus(const Bus&);
-		void AddStop(const Stop&);
+        BusPtr FindBus(std::string_view name) const;
+        StopPtr FindStop(std::string_view name) const;
 
-		[[nodiscard]] std::shared_ptr<Bus> FindBus(const std::string_view bus_number)const;
-		[[nodiscard]] std::shared_ptr<Stop> FindStop(const std::string_view stop_name)const;
+        BusStat GetBusInfo(BusPtr bus) const;
+        StopStat GetBusesByStop(std::string_view stop_name) const;
+            
+        void AddDistanceBetweenStops(StopPtr start, const std::pair<std::string_view, int>& end);
 
-		std::optional<BusInfo> GetBusInfo(const std::string_view bus)const;
-		std::shared_ptr<Buses> GetBusesByStop(const std::string_view) const;
+        int GetDistanceBetweenStops(StopPtr start, StopPtr end) const;
 
-		void AddDistanceBetweenStops(std::shared_ptr<Stop>, std::shared_ptr<Stop>, float);
+        void AddStopsToBus(BusPtr bus, std::vector<StopPtr>::const_iterator first, std::vector<StopPtr>::const_iterator last);
+        
+        std::vector<BusPtr> GetBuses() const;
+        std::vector<StopPtr> GetStopsWithRoutes() const;
 
-		float GetDistanceBetweenStops(std::shared_ptr<Stop>, std::shared_ptr<Stop>) const;
+        const std::unordered_map<std::string_view, StopPtr>& GetNamesToStops() const;
+        const std::unordered_map<std::string_view, BusPtr>& GetNamesToBuses() const;
 
-		const Buses& GetBuses() const;
-		const Stops& GetStops() const;
+    private:
+        std::deque<Bus> buses_;
+        std::deque<Stop> stops_;
+        
+        std::unordered_map<std::string_view, BusPtr> index_buses_;
+        std::unordered_map<std::string_view, StopPtr> index_stops_;
+        
+        std::unordered_map<StopPtr, std::unordered_set<BusPtr>> buses_for_stops_;
+        
+        std::unordered_map<std::pair<StopPtr, StopPtr>, int, DistanceHasher> distance_between_stops_;
+    };
 
-	private:
-		std::deque<Bus> buses_;
-		std::deque<Stop> stops_;
-
-		Buses ptr_buses_;
-		Stops ptr_stops_;
-
-		std::unordered_map<std::string_view, std::shared_ptr<Bus>> index_buses_;
-		std::unordered_map<std::string_view, std::shared_ptr<Stop>> index_stops_;
-
-		std::unordered_map<std::shared_ptr<Bus>, BusInfo> buses_info_;
-
-		std::unordered_map<std::shared_ptr<Stop>, Buses> buses_for_stops_;
-
-		std::unordered_map<std::pair<std::shared_ptr<Stop>, std::shared_ptr<Stop>>, float, DistanceHasher> distance_between_stops_;
-
-		void SetBusStat(std::shared_ptr<Bus> bus);
-	};
-
-} //namespace catalog
+} // namespace catalog

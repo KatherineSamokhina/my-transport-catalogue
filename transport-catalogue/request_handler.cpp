@@ -1,18 +1,57 @@
 #include "request_handler.h"
 
-RequestHandler::RequestHandler(const catalog::TransportCatalogue& base, const MapRenderer& map_renderer) 
-	: base_(base)
-	, map_renderer_(map_renderer) 
-{}
+namespace handler {
+    RequestHandler::RequestHandler(const catalog::TransportCatalogue& db, const map_render::MapRender& renderer, const transport_router::TransportRouter& router)
+        : db_(db)
+        , renderer_(renderer)
+        , router_(router) {
+    }
 
-std::optional<BusInfo> RequestHandler::GetBusInfo(const std::string_view number) const {
-	return base_.GetBusInfo(number);
-}
+    std::vector<StatInfo> RequestHandler::GetStats(const std::vector<StatCommand>& commands) const {
+        std::vector<StatInfo> result;
+        result.reserve(commands.size());
+        for (const auto& command : commands) {
+            result.push_back(std::move(GetStat(command)));
+        }
 
-std::shared_ptr<Buses> RequestHandler::GetBusesByStop(const std::string_view stop_name) const {
-	return base_.GetBusesByStop(stop_name);
-}
+        return result;
+    }
 
-void RequestHandler::RenderMap(std::ostream& out) const {
-	map_renderer_.GetDocument().Render(out);
-}
+    StatInfo RequestHandler::GetStat(const StatCommand& command) const {
+        StatInfo result;
+        result.id = command.id;
+        result.query_type = command.query_type;
+        switch (command.query_type) {
+        case reader::QueryType::qSTOP:
+            result.info = db_.GetBusesByStop(std::get<std::string>(command.data));
+            break;
+        case reader::QueryType::qBUS: {
+            const BusPtr bus = db_.FindBus(std::get<std::string>(command.data));
+            if (bus) {
+                result.info = db_.GetBusInfo(bus);
+            }
+        } break;
+        case reader::QueryType::qMAP: {
+            std::ostringstream out;
+            RenderMap().Render(out);
+            result.info = std::move(out.str());
+
+        } break;
+        case reader::QueryType::qROUTE: {
+            const auto& route_command = std::get<RouteCommand>(command.data);
+            std::optional<route::RouteStat> route_stat = router_.GetRoute(route_command.from, route_command.to);
+            if (route_stat) {
+                result.info = std::move(route_stat.value());
+            }
+        } break;
+
+        }
+
+        return result;
+    }
+
+    svg::Document RequestHandler::RenderMap() const {
+        return renderer_.GetMapForTC(db_.GetStopsWithRoutes(), db_.GetBuses());
+    }
+
+} //namespace handler

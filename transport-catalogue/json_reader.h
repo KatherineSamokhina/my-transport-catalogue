@@ -1,44 +1,42 @@
 #pragma once
-#include <iostream>
 
-#include "transport_catalogue.h"
 #include "request_handler.h"
+#include "json_builder.h"
 #include "map_renderer.h"
-#include "json.h"
-#include "domain.h"
 
-class JSONreader final {
+namespace json_reader {
+    using namespace std::literals;
 
-public:
-	JSONreader() = default;
-	explicit JSONreader(catalog::TransportCatalogue& base, MapRenderer& map_renderer, RequestHandler& request)
-		: base_(base)
-		, request_handler_(request)
-		, map_renderer_(map_renderer) {};
+    struct DistanceSpec {
+        int distance_meters;
+        std::string dest;
+    };
 
-	void ReadRequest(const json::Document&);
-	void ReadRequests(const json::Document&);
-	void ReadTransportCatalogue(std::ostream& ost = std::cout);
+    class JSONReader final {
+    public:
+        JSONReader(json::Document doc);
 
-private:
-	catalog::TransportCatalogue& base_;
-	RequestHandler& request_handler_;
-	MapRenderer& map_renderer_;
-	json::Array base_requests_;
-	json::Array stat_requests_;
-	json::Array answers_;
+        void LoadDataToTC(catalog::TransportCatalogue& catalog) const;
+        map_render::RenderSettings GetRenderSettings() const;
+        void PrintStats(std::ostream& output, const std::vector<reader::StatInfo>& stats_info);
+        std::vector<reader::StatCommand> GetStatCommands() const;
+        route::RouteSettings GetRouteSettings() const;
 
-	Stop MakeStop(const json::Dict&);
-	Bus MakeBus(const json::Dict&);
-	Settings MakeRenderSettings(const json::Dict&) const;
-	json::Node ReadStop(const json::Dict&);
-	json::Node ReadBus(const json::Dict&);
-	json::Node ReadMap(const json::Dict& description);
+    private:
+        json::Document requests_;
 
-	void LoadStops();
-	void LoadBuses();
-	void LoadDistances();
+        void LoadStopsToTC(catalog::TransportCatalogue& catalog, std::vector<json::Node>::const_iterator first, std::vector<json::Node>::const_iterator last) const;
+        void LoadBusToTC(catalog::TransportCatalogue& catalog, const json::Node& node) const;
 
-	svg::Point SetPoint(const json::Node&)const;
-	svg::Color SetColor(const json::Node&)const;
-};
+        Stop ParseStopCommand(const json::Node& node) const;
+        std::vector<DistanceSpec> ParseDistances(const json::Node node) const;
+        svg::Color ParseColor(const json::Node& node) const;
+        json::Node ParseMapStat(const reader::StatInfo& stat_info) const;
+        json::Node ParseBusStat(const reader::StatInfo& stat_info) const;
+        json::Node ParseStopStat(const reader::StatInfo& stat_info) const;
+        json::Node ParseRouteStat(const reader::StatInfo& stat_info) const;
+
+        reader::QueryType DefineRequestType(std::string_view query) const;
+    };
+
+}

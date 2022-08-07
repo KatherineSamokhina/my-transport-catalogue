@@ -1,22 +1,31 @@
 #pragma once
+
+#include <algorithm>
 #include <optional>
-#include <memory>
-#include <set>
+#include <sstream>
 
 #include "transport_catalogue.h"
 #include "map_renderer.h"
+#include "transport_router.h"
 
-class RequestHandler {
-public:
+namespace handler {
+    using namespace reader;
 
-	RequestHandler(const catalog::TransportCatalogue&, const MapRenderer&);
+    class RequestHandler {
+    public:
+        RequestHandler(const catalog::TransportCatalogue& db, const map_render::MapRender& renderer, const transport_router::TransportRouter& router);
 
-	std::optional<BusInfo> GetBusInfo(const std::string_view) const;
-	std::shared_ptr<Buses> GetBusesByStop(const std::string_view) const;
+    public:
+        std::vector<StatInfo> GetStats(const std::vector<StatCommand>& commands) const;
+        StatInfo GetStat(const StatCommand& command) const;
 
-	void RenderMap(std::ostream& out = std::cout)const;
+    private:
+        svg::Document RenderMap() const;
 
-private:
-	const catalog::TransportCatalogue& base_;
-	const MapRenderer& map_renderer_;
-};
+    private:
+        const catalog::TransportCatalogue& db_;
+        const map_render::MapRender& renderer_;
+        const transport_router::TransportRouter& router_;
+    };
+
+} //namespace handler

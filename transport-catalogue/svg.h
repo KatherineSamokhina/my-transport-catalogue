@@ -1,279 +1,236 @@
 #pragma once
 
 #include <cstdint>
-#include <deque>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
+#include <optional>
+#include <variant>
+#include <map>
 
 namespace svg {
 
-    using namespace std::literals;
+enum class StrokeLineCap {
+    BUTT,
+    ROUND,
+    SQUARE,
+};
 
-    // ---------- Rgb ------------------
+enum class StrokeLineJoin {
+    ARCS,
+    BEVEL,
+    MITER,
+    MITER_CLIP,
+    ROUND,
+};
 
-    struct Rgb {
-    public:
-        Rgb() = default;
-        Rgb(uint8_t r, uint8_t g,
-            uint8_t b);
+struct Rgb {
+    Rgb() = default;
+    Rgb(uint8_t r, uint8_t g, uint8_t b)
+        :red(r),
+        green(g),
+        blue(b) {
+    }
 
-        uint8_t red = 0;
-        uint8_t green = 0;
-        uint8_t blue = 0;
-    };
+    uint8_t red = 0u;
+    uint8_t green = 0u;
+    uint8_t blue = 0u;
+};
 
-    // ---------- Rgba ------------------    
+struct Rgba : Rgb {
+    Rgba() = default;
+    Rgba(uint8_t r, uint8_t g, uint8_t b, double opa)
+        :Rgb(r, g, b),
+        opacity(opa) {
+    }
+    double opacity = 1.0;
+};
 
-    struct Rgba : public Rgb {
-        Rgba() = default;
-        Rgba(uint8_t r, uint8_t g,
-            uint8_t b, double a);
+using Color = std::variant<std::monostate, std::string, Rgb, Rgba>;
 
-        double opacity = 1.0;
-    };
+inline const std::string NoneColor = std::string("none");
+inline const std::string EmptyStringColor = std::string("");
 
-    // ---------- OstreamColor ------------------    
+struct OstreamColorPrinter {
+    std::ostream& out;
+    void operator()(std::string color);
+    void operator()(const Rgb& rgb);
+    void operator()(const Rgba& rgba);
+    void operator()(std::monostate) {}
+};
 
-    using Color = std::variant<std::monostate, std::string, Rgb, Rgba>;
-    inline const std::string NoneColor("none"s);
+std::ostream& operator<< (std::ostream& out, const Color& color);
 
-    struct OstreamColor {
-        void operator()(std::monostate) const;
-        void operator()(const std::string& color) const;
-        void operator()(const Rgb& rgb) const;
-        void operator()(const Rgba& rgba) const;
-        std::ostream& out;
-    };
+struct Point {
+    Point() = default;
+    Point(double x, double y)
+        : x(x)
+        , y(y) {
+    }
+    double x = 0;
+    double y = 0;
+};
 
-    // ---------- StrokeLineCap ------------------    
+struct RenderContext {
+    RenderContext(std::ostream& out);
+    RenderContext(std::ostream& out, int indent_step, int indent = 0);
+    
+    RenderContext Indented() const;
+    void RenderIndent() const;
 
-    enum class StrokeLineCap { BUTT, ROUND, SQUARE };
-    std::ostream& operator<<(std::ostream& stream, const StrokeLineCap& stroke_line_cap);
+    std::ostream& out;
+    int indent_step = 0;
+    int indent = 0;
+};
 
-    // ---------- StrokeLineJoin ------------------
+std::ostream& operator<< (std::ostream& out, StrokeLineCap stroke_linecap);
+std::ostream& operator<< (std::ostream& out, StrokeLineJoin stroke_linejoin);
 
-    enum class StrokeLineJoin { ARCS, BEVEL, MITER, MITER_CLIP, ROUND };
-    std::ostream& operator<<(std::ostream& stream, const StrokeLineJoin& stroke_line_join);
+class Object {
+public:
+    virtual void Render(const RenderContext& context) const;
 
-    // ---------- Point ------------------    
+    virtual ~Object() = default;
 
-    struct Point {
-        Point() = default;
-        Point(double x, double y);
+private:
+    virtual void RenderObject(const RenderContext& context) const = 0;
+};
 
-        double x = 0;
-        double y = 0;
-    };
+class ObjectContainer {
+public:
+    template <typename Obj>
+    void Add(Obj obj) {
+        AddPtr(std::make_unique<Obj>(std::move(obj)));
+    }
 
-    bool operator==(const Point& lhs, const Point& rhs);
-    bool operator!=(const Point& lhs, const Point& rhs);
+   virtual void AddPtr(std::unique_ptr<Object>&& obj) = 0;
 
-    // ---------- RenderContext ------------------    
+protected:
+    ~ObjectContainer() = default;
 
-    struct RenderContext {
-        RenderContext(std::ostream& out);
-        RenderContext(std::ostream& out, int indent_step, int indent = 0);
+};
 
-        RenderContext Indented() const;
-        void RenderIndent() const;
+class Drawable {
+public:
+    virtual void Draw(ObjectContainer& objects) const = 0;
+    virtual ~Drawable() = default;
+};
 
-        std::ostream& out;
-        int indent_step = 0;
-        int indent = 0;
-    };
-
-    // ---------- PathProps ------------------    
-
-    template <typename Owner>
-    class PathProps {
-        std::optional<Color> fill_color_;
-        std::optional<Color> stroke_color_;
-        std::optional<double> stroke_width_;
-        std::optional<StrokeLineCap> stroke_line_cap_;
-        std::optional<StrokeLineJoin> stroke_line_join_;
-
-    public:
-        Owner& SetFillColor(Color color);
-        Owner& SetStrokeColor(Color color);
-        Owner& SetStrokeWidth(double width);
-        Owner& SetStrokeLineCap(StrokeLineCap line_cap);
-        Owner& SetStrokeLineJoin(StrokeLineJoin line_join);
-
-    protected:
-        ~PathProps() = default;
-        void RenderAttrs(std::ostream& out) const;
-
-    private:
-        Owner& AsOwner();
-    };
-
-    template <typename Owner>
-    Owner& PathProps<Owner>::SetFillColor(Color color) {
+template <typename Owner>
+class PathProps {
+public:
+    Owner& SetFillColor(Color color) {
         fill_color_ = std::move(color);
         return AsOwner();
     }
-
-    template <typename Owner>
-    Owner& PathProps<Owner>::SetStrokeColor(Color color) {
+    Owner& SetStrokeColor(Color color) {
         stroke_color_ = std::move(color);
         return AsOwner();
     }
-
-    template <typename Owner>
-    Owner& PathProps<Owner>::SetStrokeWidth(double width) {
-        stroke_width_ = std::move(width);
+    Owner& SetStrokeWidth(double width) {
+        stroke_width_ = width;
         return AsOwner();
     }
-
-    template <typename Owner>
-    Owner& PathProps<Owner>::SetStrokeLineCap(StrokeLineCap line_cap) {
-        stroke_line_cap_ = std::move(line_cap);
+    Owner& SetStrokeLineCap(StrokeLineCap line_cap) {
+        stroke_linecap_ = line_cap;
         return AsOwner();
     }
-
-    template <typename Owner>
-    Owner& PathProps<Owner>::SetStrokeLineJoin(StrokeLineJoin line_join) {
-        stroke_line_join_ = std::move(line_join);
+    Owner& SetStrokeLineJoin(StrokeLineJoin line_join) {
+        stroke_linejoin_ = line_join;
         return AsOwner();
     }
+protected:
+    ~PathProps() = default;
 
-    template <typename Owner>
-    void PathProps<Owner>::RenderAttrs(std::ostream& out) const {
+    void RenderAttrs(std::ostream& out) const {
+        using namespace std::literals;
+
         if (fill_color_) {
-            out << " fill=\""sv;
-            std::visit(OstreamColor{ out }, *fill_color_);
-            out << "\""sv;
+            out << " fill=\""sv << *fill_color_ << "\""sv;
         }
-
         if (stroke_color_) {
-            out << " stroke=\""sv;
-            std::visit(OstreamColor{ out }, *stroke_color_);
-            out << "\""sv;
+            out << " stroke=\""sv << *stroke_color_ << "\""sv;
         }
-
         if (stroke_width_) {
-            out << " stroke-width=\""sv
-                << *stroke_width_ << "\""sv;
+            out << " stroke-width=\""sv << *stroke_width_ << "\""sv;
         }
-
-        if (stroke_line_cap_) {
-            out << " stroke-linecap=\""sv
-                << *stroke_line_cap_ << "\""sv;
+        if (stroke_linecap_) {
+            out << " stroke-linecap=\""sv << *stroke_linecap_ << "\""sv;
         }
-
-        if (stroke_line_join_) {
-            out << " stroke-linejoin=\""sv
-                << *stroke_line_join_ << "\""sv;
+        if (stroke_linejoin_) {
+            out << " stroke-linejoin=\""sv << *stroke_linejoin_ << "\""sv;
         }
     }
 
-    template <typename Owner>
-    Owner& PathProps<Owner>::AsOwner() {
+private:
+    Owner& AsOwner() {
         return static_cast<Owner&>(*this);
     }
 
-    // ---------- Object ------------------
+private:
+    std::optional<Color> fill_color_;
+    std::optional<Color> stroke_color_;
+    std::optional<double> stroke_width_;
+    std::optional<StrokeLineCap> stroke_linecap_;
+    std::optional<StrokeLineJoin> stroke_linejoin_;
+};
 
-    class Object {
-    public:
-        void Render(const RenderContext& context) const;
-        virtual ~Object() = default;
+class Circle final : public Object, public PathProps<Circle> {
+public:
+    Circle& SetCenter(const Point& center);
+    Circle& SetRadius(double radius);
 
-    private:
-        virtual void RenderObject(const RenderContext& context) const = 0;
-    };
+private:
+    void RenderObject(const RenderContext& context) const override;
 
-    // ---------- ObjectContainer ------------------    
+private:
+    Point center_;
+    double radius_ = 1.0;
+};
 
-    class ObjectContainer {
-    public:
-        template <typename Obj>
-        void Add(Obj obj);
-        virtual void AddPtr(std::shared_ptr<Object>&& obj) = 0;
+class Polyline final : public Object, public PathProps<Polyline> {
+public:
+    Polyline& AddPoint(const Point& point);
 
-    protected:
-        virtual ~ObjectContainer() = default;
-        std::deque<std::shared_ptr<Object>> objects_;
-    };
+private:
+    void RenderObject(const RenderContext& context) const override;
 
-    template <typename Obj>
-    void
-        ObjectContainer
-        ::Add(Obj obj) {
-        objects_.emplace_back(std::make_shared<Obj>(std::move(obj)));
-    }
+private:
+    std::vector<Point> points_;
+};
 
-    // ---------- Drawable ------------------    
+void HtmlEncodeString(std::ostream& out, std::string_view sv);
 
-    class Drawable {
-    public:
-        virtual void Draw(ObjectContainer& container) const = 0;
-        virtual  ~Drawable() = default;
-    };
+class Text final : public Object, public PathProps<Text> {
+public:
+    Text& SetPosition(const Point& pos);
+    Text& SetOffset(const Point& offset);
+    Text& SetFontSize(uint32_t size);
+    Text& SetFontFamily(const std::string& font_family);
+    Text& SetFontWeight(const std::string& font_weight);
+    Text& SetData(const std::string& data);
 
-    // ---------- Circle ------------------    
+private:
+    void RenderObject(const RenderContext& context) const override;
 
-    class Circle final : public Object, public PathProps<Circle> {
-        Point center_;
-        double radius_ = 1.0;
+private:
+    Point pos_;
+    Point offset_;
+    uint32_t size_ = 1u;
+    std::string font_family_;
+    std::string font_weight_;
+    std::string data_;
+};
 
-    public:
-        Circle& SetCenter(Point center);
-        Circle& SetRadius(double radius);
+class Document final : public ObjectContainer {
+public:
+    void AddPtr(std::unique_ptr<Object>&& obj) override;
+    void Render(std::ostream& out) const;
 
-    private:
-        void RenderObject(const RenderContext& context) const override;
-    };
+private:
+    std::vector<std::unique_ptr<Object>> objects_;
+};
 
-    // ---------- Polyline ------------------    
-
-    class Polyline final : public Object, public PathProps<Polyline> {
-        std::vector<Point> points_;
-
-    public:
-        Polyline& AddPoint(Point point);
-
-    private:
-        void RenderObject(const RenderContext& context) const override;
-    };
-
-    // ---------- Text ------------------
-
-    enum class TypeChar { QUOT, APOS, LT, GT, AMP, OTHER };
-
-    class Text final : public Object, public PathProps<Text> {
-        Point                                    pos_;
-        Point                                    offset_;
-        uint32_t                                 font_size_ = 1;
-        std::optional<std::string>               font_family_;
-        std::optional<std::string>               font_weight_;
-        std::string                              data_;
-
-    public:
-        Text& SetPosition(Point pos);
-        Text& SetOffset(Point offset);
-        Text& SetFontSize(uint32_t size);
-        Text& SetFontFamily(const std::string_view font_family);
-        Text& SetFontWeight(const std::string_view font_weight);
-        Text& SetData(const std::string_view data);
-
-    private:
-        void RenderObject(const RenderContext& context) const override;
-        TypeChar GetTypeChar(char c) const;
-        void ScreenString(std::ostream& out) const;
-    };
-
-    // ---------- Document ------------------    
-
-    class Document final : public ObjectContainer {
-    public:
-        void AddPtr(std::shared_ptr<Object>&& obj) override;
-        void Render(std::ostream& out) const;
-    };
-
-}
+}  // namespace svg
