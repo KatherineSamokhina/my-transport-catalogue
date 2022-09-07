@@ -14,7 +14,7 @@ public:
 
     Range(It begin, It end)
         : begin_(begin)
-        , end_(end) {
+        , end_(end) {  
     }
     It begin() const {
         return begin_;
@@ -30,7 +30,6 @@ private:
 
 template <typename C>
 auto AsRange(const C& container) {
-    return Range{ container.begin(), container.end() };
+    return Range(container.begin(), container.end());
 }
-
-}  // namespace ranges
+} // namespace ranges

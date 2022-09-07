@@ -1,65 +1,87 @@
 #pragma once
 
-#include <memory>
+#include <deque>
+#include <map>
+#include <stdexcept>
 
 #include "transport_catalogue.h"
-#include "router.h"
+#include "graph.h"
 
-namespace transport_router {
-	struct StopIds {
-		graph::VertexId id = 0u;
-		graph::VertexId transfer_id = 0u;
-	};
+namespace catalogue {
+    struct RoutingSettings {
+        double bus_wait_time = 0.0;
+        double bus_velocity = 0.0;
+    };
 
-	struct TGraphData {
-		std::string_view from;
-		std::string_view to;
-		std::optional<std::string_view> bus;
-		int span_count = 0;
-		double time = 0.0;
-	};
+    class TransportRouter {
+    private:
+        RoutingSettings routing_settings_;
+        const TransportCatalogue& cat_;
+        graph::DirectedWeightedGraph<BusRouteWeight> route_graph_;
 
-	class TransportRouter {
-	public:
-		TransportRouter(const catalog::TransportCatalogue& catalog, route::RouteSettings settings);
+        std::deque<StopPtr> vertex_index_to_stop_;
+        std::deque<BusPtr> edge_index_to_bus_;
+        std::map<std::string_view, graph::VertexId> stopname_to_vertex_id_;
 
-		std::optional<route::RouteStat> GetRoute(std::string_view from, std::string_view to) const;
+        template <typename ForwardIt>
+        void AddBusStopsEdges(BusPtr bus, ForwardIt first_stop, ForwardIt last_stop);
 
-	private:
-		graph::DirectedWeightedGraph<double> graph_;
-		route::RouteSettings settings_;
-		std::unique_ptr<graph::Router<double>> router_;
-		std::unordered_map<graph::EdgeId, TGraphData> edge_to_data_;
-		std::unordered_map<std::string_view, StopIds> stop_to_stop_ids_;
+    public:
+        explicit TransportRouter(RoutingSettings settings,
+            const TransportCatalogue& cat);
 
-		route::RouteItemStat TGraphDataToStat(const TGraphData& data) const;
-		void AddStops(const std::unordered_map<std::string_view, StopPtr>& stops);
-		void BuildGraph(const catalog::TransportCatalogue& catalog);
+        void SetRoutingSettings(RoutingSettings routing_settings);
 
-		template <typename Iter>
-		void AddEdgesFromBusRoute(std::string_view bus, Iter first, Iter last, const catalog::TransportCatalogue& catalog) {
-			if (first == last) return;
-			for (auto it_from = first; it_from != last; ++it_from) {
-				StopPtr last_stop = *it_from;
-				double distance = 0.0;
-				int span_count = 0;
+        void AddStopVertex(StopPtr);
+        void AddBusWaitEdges();
+        void AddBusEdges(std::string_view name);
 
-				for (auto it_to = it_from + 1; it_to != last; ++it_to) {
-					if (*it_from != *it_to) {
-						graph::VertexId from = stop_to_stop_ids_.at((*it_from)->name).id;
-						graph::VertexId to = stop_to_stop_ids_.at((*it_to)->name).transfer_id;
+        template <typename Weight>
+        const graph::DirectedWeightedGraph<Weight>& GetRouteGraph() const;
 
-						distance += static_cast<double>(catalog.GetDistanceBetweenStops(last_stop, *it_to));
-						++span_count;
+        graph::VertexId GetStopVertexIndex(std::string_view stop_name) const;
+        BusPtr GetBusByEdgeIndex(graph::EdgeId edge_id) const;
+        const graph::Edge<BusRouteWeight>& GetEdgeByIndex(graph::EdgeId edge_id) const;
+        StopPtr GetStopByVertexIndex(graph::VertexId vertex_id) const;
 
-						graph::EdgeId id = graph_.AddEdge({ from, to, distance / settings_.bus_velocity * 3.6 / 60.0 });
-						edge_to_data_.emplace(id, std::move(TGraphData{ (*it_from)->name, (*it_to)->name, bus, span_count, distance / settings_.bus_velocity * 3.6 / 60.0 }));
-					}
+        //serialization
+        const RoutingSettings& GetRoutingSettings() const;
+        const std::deque<StopPtr>& GetVertexIndexToStop() const;
+        const std::deque<BusPtr>& GetEdgeIndexToBus() const;
 
-					last_stop = *it_to;
-				}
-			}
-		}
-	};
+        void SetRouteGraph(graph::DirectedWeightedGraph<BusRouteWeight>&& route_graph);
+        void SetVertexIndexToStop(std::deque<StopPtr>&& vertex_index_to_stop);
+        void SetEdgeIndexToBus(std::deque<BusPtr>&& edge_index_to_bus);
+        void SetStopnameToVertexId(std::map<std::string_view, graph::VertexId>&& stopname_to_vertex_id);
 
-} //namespace transport_router
+    };
+
+    template <typename Weight>
+    const graph::DirectedWeightedGraph<Weight>& TransportRouter::GetRouteGraph() const {
+        return route_graph_;
+    }
+
+    template <typename ForwardIt>
+    void TransportRouter::AddBusStopsEdges(BusPtr bus, ForwardIt first_stop, ForwardIt last_stop) {
+        double current_distance = 0.0;
+        int span_count = 0;
+        for (auto it_from = first_stop; it_from != std::prev(last_stop); ++it_from) {
+            for (auto it_to = std::next(it_from); it_to != last_stop; ++it_to) {
+                current_distance = current_distance + cat_.GetDistance({ *(std::prev(it_to)), *it_to });
+                ++span_count;
+                route_graph_.AddEdge({
+                    GetStopVertexIndex((*it_from)->name_) + 1,
+                    GetStopVertexIndex((*it_to)->name_),
+                    {
+                        current_distance / routing_settings_.bus_velocity,
+                        span_count
+                    }
+                    });
+                edge_index_to_bus_.push_back(bus);
+            }
+            current_distance = 0.0;
+            span_count = 0;
+        }
+    }
+
+} // namespace catalogue

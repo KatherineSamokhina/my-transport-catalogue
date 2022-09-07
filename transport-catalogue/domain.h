@@ -2,96 +2,64 @@
 
 #include <string>
 #include <vector>
-#include <variant>
 #include <set>
 
 #include "geo.h"
 
+static const double MIN = 1e-6;
+
 struct Stop {
-    std::string name;
-    geo::Coordinates position;
+    std::string name_;
+    geo::Coordinates cordinates_;
+    int id = 0;
 };
 using StopPtr = const Stop*;
 
+enum class BusType {
+    ORDINARY,
+    CYCLED
+};
 struct Bus {
-    std::string name;
-    std::vector<StopPtr> stops;
-    bool is_roundtrip = false;
+    std::string name_;
+    std::vector<StopPtr> stops_;
+    BusType bus_type_;
+    int id = 0;
 };
 using BusPtr = const Bus*;
 
-struct BusStat {
+struct BusInfo {
     size_t stops_count = 0u;
-    size_t unique_stops = 0u;
-    double route_length = 0.;
-    double curvature = 0.;
+    size_t unique_stops_count = 0u;
+    uint64_t route_length = 0;
+    double curvature = 0.0;
+
+    bool IsEmpty() const;
+    bool IsExsists = false;
 };
-struct StopStat {
-    bool is_found = false;
-    std::set<std::string_view> data;
+struct StopInfo {
+    std::set<std::string_view> buses_;
+    bool IsExsists = false;
 };
 
-namespace detail {
+struct DistanceHasher {
+    template <class T>
+    std::size_t operator()(const std::pair<T, T>& pair) const {
+        return std::hash<T>()(pair.first) + 37 * std::hash<T>()(pair.second);
+    }
+};
 
-    struct DistanceHasher {
-        template <class T>
-        std::size_t operator()(const std::pair<T, T>& pair) const {
-            return std::hash<T>()(pair.first) + 37 * std::hash<T>()(pair.second);
-        }
-    };
+struct CoordinatesHasher {
+    size_t operator()(geo::Coordinates c) const;
+};
 
-} // namespace detail
+struct BusRouteWeight {
+    double time = 0.0;
+    int span = 0;
 
-namespace route {
+    bool operator<(const BusRouteWeight& other) const;
+    bool operator>(const BusRouteWeight& other) const;
+    bool operator==(const BusRouteWeight& other) const;
+    bool operator!=(const BusRouteWeight& other) const;
 
-    enum class RouteType {
-        WAIT,
-        BUS
-    };
-
-    struct RouteSettings {
-        double bus_wait_time = 0.0;
-        double bus_velocity = 0.0;
-    };
-
-    struct RouteItemStat {
-        RouteType type = RouteType::BUS;
-        std::string_view name;
-        int span_cout = 0;
-        double time = 0.0;
-    };
-
-    struct RouteStat {
-        double total_time = 0.0;
-        std::vector<RouteItemStat> items;
-    };
-
-} // namespace route
-
-namespace reader {
-
-    enum class QueryType {
-        qSTOP,
-        qBUS,
-        qMAP,
-        qROUTE
-    };
-
-    struct RouteCommand {
-        std::string from;
-        std::string to;
-    };
-
-    struct StatCommand {
-        int id = 0;
-        QueryType query_type = QueryType::qSTOP;
-        std::variant <std::monostate, std::string, RouteCommand> data;
-    };
-
-    struct StatInfo {
-        int id = 0;
-        QueryType query_type = QueryType::qSTOP;
-        std::variant <std::monostate, StopStat, BusStat, route::RouteStat, std::string> info;
-    };
-
-} // namespace reader
+    BusRouteWeight operator+(const BusRouteWeight& other) const;
+};

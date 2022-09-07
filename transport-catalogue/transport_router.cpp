@@ -1,64 +1,96 @@
 #include "transport_router.h"
 
-namespace transport_router {
-	TransportRouter::TransportRouter(const catalog::TransportCatalogue& catalog, route::RouteSettings settings)
-		: graph_(catalog.GetNamesToStops().size() * 2u)
-		, settings_(settings) {
+namespace catalogue {
+    TransportRouter::TransportRouter(RoutingSettings settings,
+        const TransportCatalogue& cat)
+        : routing_settings_(std::move(settings))
+        , cat_(cat) {
 
-		BuildGraph(catalog);
-		router_ = std::make_unique<graph::Router<double>>(graph_);
-	}
+    }
 
-	std::optional<route::RouteStat> TransportRouter::GetRoute(std::string_view from, std::string_view to) const {
-		auto from_id = stop_to_stop_ids_.at(from).transfer_id;
-		auto to_id = stop_to_stop_ids_.at(to).transfer_id;
+    const RoutingSettings& TransportRouter::GetRoutingSettings() const {
+        return routing_settings_;
+    }
 
-		auto route = router_->BuildRoute(from_id, to_id);
+    void TransportRouter::SetRoutingSettings(RoutingSettings routing_settings) {
+        routing_settings_ = std::move(routing_settings);
+    }
 
-		if (route) {
-			route::RouteStat data;
-			data.total_time = route->weight;
+    void TransportRouter::AddStopVertex(StopPtr stop) {
+        vertex_index_to_stop_.push_back(stop);
+        vertex_index_to_stop_.push_back(stop);
+        stopname_to_vertex_id_.emplace(stop->name_, vertex_index_to_stop_.size() - 2);
+    }
 
-			for (graph::EdgeId id : route->edges) {
-				data.items.push_back(TGraphDataToStat(edge_to_data_.at(id)));
-			}
+    void TransportRouter::AddBusWaitEdges() {
+        route_graph_ = std::move(graph::DirectedWeightedGraph<BusRouteWeight>(vertex_index_to_stop_.size()));
+        for (graph::VertexId vertex_from_id = 0; vertex_from_id < vertex_index_to_stop_.size(); vertex_from_id += 2) {
+            route_graph_.AddEdge({ vertex_from_id, vertex_from_id + 1, routing_settings_.bus_wait_time });
+            edge_index_to_bus_.push_back(nullptr);
+        }
+    }
 
-			return data;
-		}
+    void TransportRouter::AddBusEdges(std::string_view name) {
+        if (cat_.index_buses_.count(name) == 0) {
+            throw std::logic_error("No such bus");
+        }
+        BusPtr bus = cat_.index_buses_.at(name);
+        const std::vector<StopPtr>& stops = bus->stops_;
 
-		return std::nullopt;
-	}
+        if (bus->bus_type_ == BusType::CYCLED) {
+            AddBusStopsEdges(bus, stops.begin(), stops.end());
+        }
+        else {
+            AddBusStopsEdges(bus, stops.begin(), stops.end());
+            AddBusStopsEdges(bus, stops.rbegin(), stops.rend());
+        }
+    }
 
-	route::RouteItemStat TransportRouter::TGraphDataToStat(const TGraphData& data) const {
-		if (data.bus.has_value()) {
-			return { route::RouteType::BUS, data.bus.value(), data.span_count, data.time };
-		}
+    graph::VertexId TransportRouter::GetStopVertexIndex(std::string_view stop_name) const {
+        if (stopname_to_vertex_id_.count(stop_name) == 0) {
+            throw std::logic_error("Invalid stop name - can't find VertexId");
+        }
+        return stopname_to_vertex_id_.at(stop_name);
+    }
 
-		return { route::RouteType::WAIT, data.from, data.span_count, data.time };
-	}
+    BusPtr TransportRouter::GetBusByEdgeIndex(graph::EdgeId edge_id) const {
+        if (edge_id < edge_index_to_bus_.size()) {
+            return edge_index_to_bus_[edge_id];
+        }
+        else {
+            throw std::logic_error("Bad EdgeId requested!");
+        }
+    }
 
-	void TransportRouter::AddStops(const std::unordered_map<std::string_view, StopPtr>& stops) {
-		graph::VertexId i = 0u;
+    const graph::Edge<BusRouteWeight>& TransportRouter::GetEdgeByIndex(graph::EdgeId edge_id) const {
+        return route_graph_.GetEdge(edge_id);
+    }
 
-		for (const auto& [_, stop] : stops) {
-			stop_to_stop_ids_.insert({ stop->name, {i, i + 1} });
-			graph::EdgeId edge_id = graph_.AddEdge({ i + 1, i, settings_.bus_wait_time });
-			edge_to_data_.insert({ edge_id, {stop->name, stop->name, std::nullopt, 0, settings_.bus_wait_time} });
+    StopPtr TransportRouter::GetStopByVertexIndex(graph::VertexId vertex_id) const {
+        if (vertex_id >= vertex_index_to_stop_.size()) {
+            throw std::logic_error("Bad vartex id is passed, too big");
+        }
+        return vertex_index_to_stop_[vertex_id];
+    }
 
-			i += 2;
-		}
-	}
+    const std::deque<StopPtr>& TransportRouter::GetVertexIndexToStop() const {
+        return vertex_index_to_stop_;
+    }
 
-	void TransportRouter::BuildGraph(const catalog::TransportCatalogue& catalog) {
-		AddStops(catalog.GetNamesToStops());
+    const std::deque<BusPtr>& TransportRouter::GetEdgeIndexToBus() const {
+        return edge_index_to_bus_;
+    }
 
-		for (const auto& [_, bus_ptr] : catalog.GetNamesToBuses()) {
-			AddEdgesFromBusRoute(bus_ptr->name, bus_ptr->stops.begin(), bus_ptr->stops.end(), catalog);
-
-			if (!bus_ptr->is_roundtrip) {
-				AddEdgesFromBusRoute(bus_ptr->name, bus_ptr->stops.rbegin(), bus_ptr->stops.rend(), catalog);
-			}
-		}
-	}
-
-} //namespace transport_router
+    void TransportRouter::SetRouteGraph(graph::DirectedWeightedGraph<BusRouteWeight>&& route_graph) {
+        route_graph_ = route_graph;
+    }
+    void TransportRouter::SetVertexIndexToStop(std::deque<StopPtr>&& vertex_index_to_stop) {
+        vertex_index_to_stop_ = vertex_index_to_stop;
+    }
+    void TransportRouter::SetEdgeIndexToBus(std::deque<BusPtr>&& edge_index_to_bus) {
+        edge_index_to_bus_ = edge_index_to_bus;
+    }
+    void TransportRouter::SetStopnameToVertexId(std::map<std::string_view, graph::VertexId>&& stopname_to_vertex_id) {
+        stopname_to_vertex_id_ = stopname_to_vertex_id;
+    }
+} // namespace catalogue
